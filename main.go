@@ -64,6 +64,16 @@ func download(release *github.RepositoryRelease) ([]byte, error) {
 	return get(geoipAsset.BrowserDownloadURL)
 }
 
+func downloadlite(release *github.RepositoryRelease) ([]byte, error) {
+	geoipAsset := common.Find(release.Assets, func(it *github.ReleaseAsset) bool {
+		return *it.Name == "Country-lite.mmdb"
+	})
+	if geoipAsset == nil {
+		return nil, E.New("Country-lite.mmdb not found in upstream release ", release.Name)
+	}
+	return get(geoipAsset.BrowserDownloadURL)
+}
+
 func parse(binary []byte) (metadata maxminddb.Metadata, countryMap map[string][]*net.IPNet, err error) {
 	database, err := maxminddb.FromBytes(binary)
 	if err != nil {
@@ -172,8 +182,43 @@ func release(source string, output string) error {
 	return nil
 }
 
+func releaselite(source string, output string) error {
+	sourceRelease, err := fetch(source)
+	if err != nil {
+		return err
+	}
+	binary, err := downloadlite(sourceRelease)
+	if err != nil {
+		return err
+	}
+	metadata, countryMap, err := parse(binary)
+	if err != nil {
+		return err
+	}
+	allCodes := make([]string, 0, len(countryMap))
+	for code := range countryMap {
+		allCodes = append(allCodes, code)
+	}
+	writer, err := newWriter(metadata, allCodes)
+	if err != nil {
+		return err
+	}
+	err = write(writer, countryMap, output, nil)
+	if err != nil {
+		return err
+	}
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
 func main() {
 	err := release("Chocolate4U/Iran-v2ray-rules", "geoip.db")
+	if err != nil {
+		logrus.Fatal(err)
+	}
+	err = releaselite("Chocolate4U/Iran-v2ray-rules", "geoip-lite.db")
 	if err != nil {
 		logrus.Fatal(err)
 	}
