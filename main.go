@@ -12,7 +12,7 @@ import (
 	"github.com/sagernet/sing/common"
 	E "github.com/sagernet/sing/common/exceptions"
 
-	"github.com/google/go-github/v53/github"
+	"github.com/google/go-github/v54/github"
 	"github.com/maxmind/mmdbwriter"
 	"github.com/maxmind/mmdbwriter/inserter"
 	"github.com/maxmind/mmdbwriter/mmdbtype"
@@ -38,9 +38,6 @@ func init() {
 func fetch(from string) (*github.RepositoryRelease, error) {
 	names := strings.SplitN(from, "/", 2)
 	latestRelease, _, err := githubClient.Repositories.GetLatestRelease(context.Background(), names[0], names[1])
-	if err != nil {
-		return nil, err
-	}
 	return latestRelease, err
 }
 
@@ -172,14 +169,7 @@ func release(source string, output string) error {
 	if err != nil {
 		return err
 	}
-	err = write(writer, countryMap, output, nil)
-	if err != nil {
-		return err
-	}
-	if err != nil {
-		return err
-	}
-	return nil
+	return write(writer, countryMap, output, nil)
 }
 
 func releaselite(source string, output string) error {
@@ -203,23 +193,14 @@ func releaselite(source string, output string) error {
 	if err != nil {
 		return err
 	}
-	err = write(writer, countryMap, output, nil)
-	if err != nil {
-		return err
-	}
-	if err != nil {
-		return err
-	}
-	return nil
+	return write(writer, countryMap, output, nil)
 }
 
 func main() {
-	err := release("Chocolate4U/Iran-v2ray-rules", "geoip.db")
-	if err != nil {
+	if err := release("Chocolate4U/Iran-v2ray-rules", "geoip.db"); err != nil {
 		logrus.Fatal(err)
 	}
-	err = releaselite("Chocolate4U/Iran-v2ray-rules", "geoip-lite.db")
-	if err != nil {
+	if err := releaselite("Chocolate4U/Iran-v2ray-rules", "geoip-lite.db"); err != nil {
 		logrus.Fatal(err)
 	}
 }
