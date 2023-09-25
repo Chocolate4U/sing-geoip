@@ -51,22 +51,18 @@ func get(downloadURL *string) ([]byte, error) {
 	return io.ReadAll(response.Body)
 }
 
-func download(release *github.RepositoryRelease) ([]byte, error) {
-	geoipAsset := common.Find(release.Assets, func(it *github.ReleaseAsset) bool {
-		return *it.Name == "Country.mmdb"
-	})
-	if geoipAsset == nil {
-		return nil, E.New("Country.mmdb not found in upstream release ", release.Name)
+func download(release *github.RepositoryRelease, lite bool) ([]byte, error) {
+	var assetName string
+	if lite {
+		assetName = "Country-lite.mmdb"
+	} else {
+		assetName = "Country.mmdb"
 	}
-	return get(geoipAsset.BrowserDownloadURL)
-}
-
-func downloadlite(release *github.RepositoryRelease) ([]byte, error) {
 	geoipAsset := common.Find(release.Assets, func(it *github.ReleaseAsset) bool {
-		return *it.Name == "Country-lite.mmdb"
+		return *it.Name == assetName
 	})
 	if geoipAsset == nil {
-		return nil, E.New("Country-lite.mmdb not found in upstream release ", release.Name)
+		return nil, E.New(assetName + " not found in upstream release " + *release.Name)
 	}
 	return get(geoipAsset.BrowserDownloadURL)
 }
@@ -148,36 +144,12 @@ func write(writer *mmdbwriter.Tree, dataMap map[string][]*net.IPNet, output stri
 	return err
 }
 
-func release(source string, output string) error {
+func release(source string, output string, lite bool) error {
 	sourceRelease, err := fetch(source)
 	if err != nil {
 		return err
 	}
-	binary, err := download(sourceRelease)
-	if err != nil {
-		return err
-	}
-	metadata, countryMap, err := parse(binary)
-	if err != nil {
-		return err
-	}
-	allCodes := make([]string, 0, len(countryMap))
-	for code := range countryMap {
-		allCodes = append(allCodes, code)
-	}
-	writer, err := newWriter(metadata, allCodes)
-	if err != nil {
-		return err
-	}
-	return write(writer, countryMap, output, nil)
-}
-
-func releaselite(source string, output string) error {
-	sourceRelease, err := fetch(source)
-	if err != nil {
-		return err
-	}
-	binary, err := downloadlite(sourceRelease)
+	binary, err := download(sourceRelease, lite)
 	if err != nil {
 		return err
 	}
@@ -197,10 +169,10 @@ func releaselite(source string, output string) error {
 }
 
 func main() {
-	if err := release("Chocolate4U/Iran-v2ray-rules", "geoip.db"); err != nil {
+	if err := release("Chocolate4U/Iran-v2ray-rules", "geoip-lite.db", true); err != nil {
 		logrus.Fatal(err)
 	}
-	if err := releaselite("Chocolate4U/Iran-v2ray-rules", "geoip-lite.db"); err != nil {
+	if err := release("Chocolate4U/Iran-v2ray-rules", "geoip.db", false); err != nil {
 		logrus.Fatal(err)
 	}
 }
