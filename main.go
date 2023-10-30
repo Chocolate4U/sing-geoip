@@ -12,7 +12,7 @@ import (
 	"github.com/sagernet/sing/common"
 	E "github.com/sagernet/sing/common/exceptions"
 
-	"github.com/google/go-github/v55/github"
+	"github.com/google/go-github/v56/github"
 	"github.com/maxmind/mmdbwriter"
 	"github.com/maxmind/mmdbwriter/inserter"
 	"github.com/maxmind/mmdbwriter/mmdbtype"
@@ -51,13 +51,8 @@ func get(downloadURL *string) ([]byte, error) {
 	return io.ReadAll(response.Body)
 }
 
-func download(release *github.RepositoryRelease, lite bool) ([]byte, error) {
-	var assetName string
-	if lite {
-		assetName = "Country-lite.mmdb"
-	} else {
-		assetName = "Country.mmdb"
-	}
+func download(release *github.RepositoryRelease, assetName string) ([]byte, error) {
+
 	geoipAsset := common.Find(release.Assets, func(it *github.ReleaseAsset) bool {
 		return *it.Name == assetName
 	})
@@ -144,12 +139,12 @@ func write(writer *mmdbwriter.Tree, dataMap map[string][]*net.IPNet, output stri
 	return err
 }
 
-func release(source string, output string, lite bool) error {
+func release(source string, output string, assetName string) error {
 	sourceRelease, err := fetch(source)
 	if err != nil {
 		return err
 	}
-	binary, err := download(sourceRelease, lite)
+	binary, err := download(sourceRelease, assetName)
 	if err != nil {
 		return err
 	}
@@ -169,10 +164,13 @@ func release(source string, output string, lite bool) error {
 }
 
 func main() {
-	if err := release("Chocolate4U/Iran-v2ray-rules", "geoip-lite.db", true); err != nil {
+	if err := release("Chocolate4U/Iran-v2ray-rules", "geoip-lite.db", "Country-lite.mmdb"); err != nil {
 		logrus.Fatal(err)
 	}
-	if err := release("Chocolate4U/Iran-v2ray-rules", "geoip.db", false); err != nil {
+	if err := release("Chocolate4U/Iran-v2ray-rules", "security-ip.db", "Security-ip.mmdb"); err != nil {
+		logrus.Fatal(err)
+	}
+	if err := release("Chocolate4U/Iran-v2ray-rules", "geoip.db", "Country.mmdb"); err != nil {
 		logrus.Fatal(err)
 	}
 }
