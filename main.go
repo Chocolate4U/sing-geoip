@@ -6,9 +6,14 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 
+	"github.com/sagernet/sing-box/common/srs"
+	C "github.com/sagernet/sing-box/constant"
+	"github.com/sagernet/sing-box/log"
+	"github.com/sagernet/sing-box/option"
 	"github.com/sagernet/sing/common"
 	E "github.com/sagernet/sing/common/exceptions"
 
@@ -18,7 +23,6 @@ import (
 	"github.com/maxmind/mmdbwriter/mmdbtype"
 	"github.com/oschwald/geoip2-golang"
 	"github.com/oschwald/maxminddb-golang"
-	"github.com/sirupsen/logrus"
 )
 
 var githubClient *github.Client
@@ -38,11 +42,14 @@ func init() {
 func fetch(from string) (*github.RepositoryRelease, error) {
 	names := strings.SplitN(from, "/", 2)
 	latestRelease, _, err := githubClient.Repositories.GetLatestRelease(context.Background(), names[0], names[1])
+	if err != nil {
+		return nil, err
+	}
 	return latestRelease, err
 }
 
 func get(downloadURL *string) ([]byte, error) {
-	logrus.Info("download ", *downloadURL)
+	log.Info("download ", *downloadURL)
 	response, err := http.Get(*downloadURL)
 	if err != nil {
 		return nil, err
@@ -51,13 +58,12 @@ func get(downloadURL *string) ([]byte, error) {
 	return io.ReadAll(response.Body)
 }
 
-func download(release *github.RepositoryRelease, assetName string) ([]byte, error) {
-
+func download(release *github.RepositoryRelease, input string) ([]byte, error) {
 	geoipAsset := common.Find(release.Assets, func(it *github.ReleaseAsset) bool {
-		return *it.Name == assetName
+		return *it.Name == input
 	})
 	if geoipAsset == nil {
-		return nil, E.New(assetName + " not found in upstream release " + *release.Name)
+		return nil, E.New(input+" not found in upstream release ", release.Name)
 	}
 	return get(geoipAsset.BrowserDownloadURL)
 }
@@ -107,6 +113,24 @@ func newWriter(metadata maxminddb.Metadata, codes []string) (*mmdbwriter.Tree, e
 	})
 }
 
+func open(path string, codes []string) (*mmdbwriter.Tree, error) {
+	reader, err := maxminddb.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	if reader.Metadata.DatabaseType != "sing-geoip" {
+		return nil, E.New("invalid sing-geoip database")
+	}
+	reader.Close()
+
+	return mmdbwriter.Load(path, mmdbwriter.Options{
+		Languages: append(reader.Metadata.Languages, common.Filter(codes, func(it string) bool {
+			return !common.Contains(reader.Metadata.Languages, it)
+		})...),
+		Inserter: inserter.ReplaceWith,
+	})
+}
+
 func write(writer *mmdbwriter.Tree, dataMap map[string][]*net.IPNet, output string, codes []string) error {
 	if len(codes) == 0 {
 		codes = make([]string, 0, len(dataMap))
@@ -139,12 +163,12 @@ func write(writer *mmdbwriter.Tree, dataMap map[string][]*net.IPNet, output stri
 	return err
 }
 
-func release(source string, output string, assetName string) error {
+func release(source string, input string, output string, ruleSet bool) error {
 	sourceRelease, err := fetch(source)
 	if err != nil {
 		return err
 	}
-	binary, err := download(sourceRelease, assetName)
+	binary, err := download(sourceRelease, input)
 	if err != nil {
 		return err
 	}
@@ -156,21 +180,58 @@ func release(source string, output string, assetName string) error {
 	for code := range countryMap {
 		allCodes = append(allCodes, code)
 	}
+
 	writer, err := newWriter(metadata, allCodes)
 	if err != nil {
 		return err
 	}
-	return write(writer, countryMap, output, nil)
+	err = write(writer, countryMap, output, nil)
+	if err != nil {
+		return err
+	}
+
+	if ruleSet {
+		for countryCode, ipNets := range countryMap {
+			var headlessRule option.DefaultHeadlessRule
+			headlessRule.IPCIDR = make([]string, 0, len(ipNets))
+			for _, cidr := range ipNets {
+				headlessRule.IPCIDR = append(headlessRule.IPCIDR, cidr.String())
+			}
+			var plainRuleSet option.PlainRuleSet
+			plainRuleSet.Rules = []option.HeadlessRule{
+				{
+					Type:           C.RuleTypeDefault,
+					DefaultOptions: headlessRule,
+				},
+			}
+			srsPath, _ := filepath.Abs(filepath.Join("rule-set", "geoip-"+countryCode+".srs"))
+			os.Stderr.WriteString("write " + srsPath + "\n")
+			outputRuleSet, err := os.Create(srsPath)
+			if err != nil {
+				return err
+			}
+			err = srs.Write(outputRuleSet, plainRuleSet)
+			if err != nil {
+				outputRuleSet.Close()
+				return err
+			}
+			outputRuleSet.Close()
+		}
+	}
+	return nil
 }
 
 func main() {
-	if err := release("Chocolate4U/Iran-v2ray-rules", "geoip-lite.db", "Country-lite.mmdb"); err != nil {
-		logrus.Fatal(err)
+	if err := release("Chocolate4U/Iran-v2ray-rules", "Country.mmdb", "geoip.db", true); err != nil {
+		log.Fatal(err)
 	}
-	if err := release("Chocolate4U/Iran-v2ray-rules", "security-ip.db", "Security-ip.mmdb"); err != nil {
-		logrus.Fatal(err)
+	if err := release("Chocolate4U/Iran-v2ray-rules", "Country-lite.mmdb", "geoip-lite.db", false); err != nil {
+		log.Fatal(err)
 	}
-	if err := release("Chocolate4U/Iran-v2ray-rules", "geoip.db", "Country.mmdb"); err != nil {
-		logrus.Fatal(err)
+	if err := release("Chocolate4U/Iran-v2ray-rules", "Security-ip.mmdb", "security-ip.db", false); err != nil {
+		log.Fatal(err)
+	}
+	if err := release("Chocolate4U/Iran-v2ray-rules", "Services.mmdb", "geoip-services.db", true); err != nil {
+		log.Fatal(err)
 	}
 }
